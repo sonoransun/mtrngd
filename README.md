@@ -21,21 +21,21 @@ Start/stop/restart supported by invoking the rc script as follows:
 When using the status command you should see a message similar to the
 following:
 
-root@cpu0:~# /etc/init.d/mtrngd status
-[Tue Aug 16 13:28:19-411849] Current MTRNGD Status:
- bad fips blocks ......: 758
-   monobit failures ___: 0
-   poker run failures _: 347
-   bit run failures  __: 635
-   long run failures __: 0
-   cont run failures __: 0
- good fips blocks .....: 1314
- hwrng read bytes .....: 5180000
- entropy add bytes ....: 3279360
- random writeable cnt .: 8540
- hw entropy read stats ....:    min: 1288       avg:  1323      max: 2684       total: 2741904
- rng fips check stats .....:    min: 914        avg:  926       max: 2421       total: 1920127
- random recv starve stats .:    min: 4  avg:  26        max: 6772       total: 34555
+    root@cpu0:~# /etc/init.d/mtrngd status
+    [Tue Aug 16 13:28:19-411849] Current MTRNGD Status:
+     bad fips blocks ......: 758
+       monobit failures ___: 0
+       poker run failures _: 347
+       bit run failures  __: 635
+       long run failures __: 0
+       cont run failures __: 0
+     good fips blocks .....: 1314
+     hwrng read bytes .....: 5180000
+     entropy add bytes ....: 3279360
+     random writeable cnt .: 8540
+     hw entropy read stats ....:    min: 1288       avg:  1323      max: 2684       total: 2741904
+     rng fips check stats .....:    min: 914        avg:  926       max: 2421       total: 1920127
+     random recv starve stats .:    min: 4  avg:  26        max: 6772       total: 34555
 
 All time values are in microseconds.
 
