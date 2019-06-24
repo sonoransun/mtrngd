@@ -1,0 +1,192 @@
+#!/bin/bash
+# start/stop/restart of the mtrngd
+#
+
+export PATH=$PATH:/sbin:/usr/sbin:/usr/local/sbin:.
+
+# root privileges required
+ID=`id -u`
+if (( $? != 0 )); then ID=999; fi
+if (( $ID != 0 )); then
+  echo "root privileges are required for starting or stopping mtrngd."
+  exit 1
+fi
+
+modprobe=/sbin/modprobe
+rmmod=/sbin/rmmod
+MODOPTS="rngsrc=0 rdelay=10 rawbit=0 strflt=1 fltlen=32"
+
+# It is suggested that the kernel hwrandom source be used as it performs
+# better under load and also while longhaul frequency scaling is in use.
+USE_XSTORE=false
+USE_MSR=false
+USE_RAWBITS=false
+USE_STRFILT=false
+USE_BIAS=false
+
+# NOTE: do not set EASY_FIPS unless you know exactly what you are doing!
+EASY_FIPS=false
+
+
+DEF_MODE="--background"
+DEF_LOGDIR="/var/log/mtrngd"
+DEF_STATFILE="${DEF_LOGDIR}/mtrngd.status"
+DEF_LOGDIRARG="--logdir ${DEF_LOGDIR}"
+DEF_RDEV="--random-device /dev/random"
+DEF_ESRC="--entropy-source /dev/hwrandom"
+DEF_XSTORE="--xstore"
+DEF_DENSITY="--rng-density 80"
+DEF_TIMEOUT="--timeout 60"
+DEF_POOLSZ="--poolsize 512"
+DEF_WRITEMK="--writemark 128"
+DEF_STATS="--stats 600"
+DEF_STATMAX="--statmax 128"
+DEF_MSR="--msr"
+DEF_MSRDEV="/dev/cpu/0/msr"
+DEF_MSRDEVARG="--msr-device ${DEF_MSRDEV}"
+DEF_FILTERSZ="--filtersz 32"
+DEF_DCBIAS="--dcbias 0"
+DEF_RAWBITS="--rawbits"
+DEF_NSRC="--noisesrc 0"
+DEF_DISABLE="--disable"
+DEF_EASYFIPS="--forgiving"
+
+OPTS="${OPTS} ${DEF_MODE}"
+OPTS="${OPTS} ${DEF_LOGDIRARG}"
+OPTS="${OPTS} ${DEF_RDEV}"
+if [[ "$USE_XSTORE" == "true" ]]; then
+  OPTS="${OPTS} ${DEF_XSTORE}"
+else
+  OPTS="${OPTS} ${DEF_ESRC}"
+fi
+OPTS="${OPTS} ${DEF_DENSITY}"
+OPTS="${OPTS} ${DEF_TIMEOUT}"
+OPTS="${OPTS} ${DEF_POOLSZ}"
+OPTS="${OPTS} ${DEF_WRITEMK}"
+OPTS="${OPTS} ${DEF_STATS}"
+OPTS="${OPTS} ${DEF_STATMAX}"
+if [[ "$USE_MSR" == "true" ]]; then
+  OPTS="${OPTS} ${DEF_MSR}"
+  OPTS="${OPTS} ${DEF_MSRDEVARG}"
+fi
+if [[ "$USE_RAWBITS" == "true" ]]; then
+  OPTS="${OPTS} ${DEF_RAWBITS}"
+fi
+if [[ "$USE_BIAS" == "true" ]]; then
+  OPTS="${OPTS} ${DEF_DCBIAS}"
+fi
+if [[ "$USE_STRFILT" == "true" ]]; then
+  OPTS="${OPTS} ${DEF_FILTERSZ}"
+fi
+OPTS="${OPTS} ${DEF_NSRC}"
+OPTS="${OPTS} ${DEF_DISABLE}"
+if [[ "$EASY_FIPS" == "true" ]]; then
+  OPTS="${OPTS} ${DEF_EASYFIPS}"
+fi
+
+
+check_paths () {
+  if [ ! -d $DEF_LOGDIR ]; then
+    # log directory does not exist, attempt to create it.
+    mkdir -p $DEF_LOGDIR 1>/dev/null 2>&1
+    if [ ! -d $DEF_LOGDIR ]; then
+      echo "Error: the log directory: $DEF_LOGDIR does not exist.  Exiting."
+      exit 1
+    fi
+  fi
+  if [[ "$USE_MSR" == "true" ]]; then
+    if [ ! -c $DEF_MSRDEV ]; then
+      echo "Error: the MSR character device file: $DEF_MSRDEV does not exist.  Exiting."
+      exit 1
+    fi
+  fi
+}
+
+check_modules () {
+  if [[ "$USE_XSTORE" != "true" ]]; then
+    grep hw_random /proc/modules 1>/dev/null 2>&1
+    if (( $? != 0 )); then
+      echo "Loading hw_random kernel module..."
+      $modprobe hw_random $MODOPTS 1>/dev/null 2>&1
+      if (( $? != 0 )); then
+        echo "Unable to load the hw_random kernel module.  Exiting."
+        exit 1
+      fi
+    fi
+  fi
+}
+
+get_pid () {
+  export pid=`ps -fea | grep ' mtrngd' | sed 's/ *[^ ]* *//' | sort | head -1 | sed 's/ .*//'`
+  kill -0 $pid 1>/dev/null 2>&1
+  if (( $? != 0 )); then
+    export pid=0
+  fi
+}
+
+mtrngd_start() {
+  check_paths
+  check_modules
+  get_pid
+  if (( $pid != 0 )); then
+    echo "mtrngd is already running with pid: $pid"
+    exit 1
+  fi
+  rm -f $DEF_LOGDIR/mtrngd-stats* 1>/dev/null 2>&1
+  echo "starting mtrngd $OPTS"
+  mtrngd $OPTS
+}
+
+mtrngd_stop() {
+  get_pid
+  if (( $pid != 0 )); then
+    kill -TERM $pid
+    get_pid
+    if (( $pid != 0 )); then
+      kill -9 $pid
+    fi
+  else
+    echo "mtrngd is not running"
+  fi
+}
+
+mtrngd_status() {
+  get_pid
+  if (( $pid == 0 )); then
+    echo "mtrngd does not appear to be running."
+    exit 1;
+  fi
+  if [ -f $DEF_STATFILE ]; then
+    rm -f $DEF_STATFILE 1>/dev/null 2>/dev/null
+  fi
+  kill -USR1 $pid
+  max=10
+  for ((i=1; i <= $max ; i++)); do
+    if [ -f $DEF_STATFILE ]; then
+      cat $DEF_STATFILE
+      exit 0;
+    fi
+    usleep 20000
+  done
+  echo "Unable to get current status.  Is mtrngd hung?"
+  exit 2;
+}
+
+case "$1" in
+'start')
+  mtrngd_start
+  ;;
+'stop')
+  mtrngd_stop
+  ;;
+'restart')
+  mtrngd_stop
+  mtrngd_start
+  ;;
+'status')
+  mtrngd_status
+  ;;
+*)
+  echo "usage $0 start|stop|restart"
+esac
+
